@@ -1,0 +1,56 @@
+{
+  "pagination": {
+    "limit": 1,
+    "offset": 0,
+    "count": 1,
+    "total": 17432
+  },
+  "data": [
+    {
+      "flight_date": "2023-11-22",
+      "flight_status": "active",
+      "departure": {
+        "airport": "Kuala Lumpur International Airport (klia)",
+        "timezone": "Asia/Kuala_Lumpur",
+        "iata": "KUL",
+        "icao": "WMKK",
+        "terminal": "1",
+        "gate": "C34",
+        "delay": 33,
+        "scheduled": "2023-11-22T10:35:00+00:00",
+        "estimated": "2023-11-22T10:35:00+00:00",
+        "actual": "2023-11-22T11:07:00+00:00",
+        "estimated_runway": "2023-11-22T11:07:00+00:00",
+        "actual_runway": "2023-11-22T11:07:00+00:00"
+      },
+      "arrival": {
+        "airport": "Perth International",
+        "timezone": "Australia/Perth",
+        "iata": "PER",
+        "icao": "YPPH",
+        "terminal": "1",
+        "gate": null,
+        "baggage": null,
+        "delay": 9,
+        "scheduled": "2023-11-22T16:10:00+00:00",
+        "estimated": "2023-11-22T16:10:00+00:00",
+        "actual": null,
+        "estimated_runway": null,
+        "actual_runway": null
+      },
+      "airline": {
+        "name": "Batik Air",
+        "iata": "ID",
+        "icao": "BTK"
+      },
+      "flight": {
+        "number": "195",
+        "iata": "ID195",
+        "icao": "BTK195",
+        "codeshared": null
+      },
+      "aircraft": null,
+      "live": null
+    }
+  ]
+}
