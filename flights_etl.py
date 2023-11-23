@@ -1,9 +1,16 @@
 import pandas as pd
 import json
 import requests
+from aux import Flight
+from FlightRadar24 import FlightRadar24API
 
+# ------- Flightradar API --------
+api = FlightRadar24API()
+
+
+# ------- Aviationstack API -------
 access_key = "ec56dc99dafcc4fc9ba0b44c98f65b43"
-limit = 1  # Number of rows from query
+limit = 100  # Maximum number of queries for free account
 flight_status = "active"  # squeduled, active, landed, cancelled, incident, diverted
 
 url = f"http://api.aviationstack.com/v1/flights"  # Real-time flights endpoint
@@ -11,19 +18,21 @@ params = {"access_key": access_key, "limit": limit, "flight_status": flight_stat
 response = requests.get(url, params=params)
 response_json = response.json()
 
-with open("test.json", "w") as file:
-    json.dump(response_json, file)
+data_json = response_json["data"]
 
-# for flight in response_json["data"]:
-#     if flight["live"] is False:
-#         print(
-#             "%s flight %s from %s (%s) to %s (%s) is in the air."
-#             % (
-#                 flight["airline"]["name"],
-#                 flight["flight"]["iata"],
-#                 flight["departure"]["airport"],
-#                 flight["departure"]["iata"],
-#                 flight["arrival"]["airport"],
-#                 flight["arrival"]["iata"],
-#             )
-#         )
+# Creating a list of Flight objects
+flights_list = []
+for flight_json in data_json:
+    _dict = {
+        "flight_date": flight_json["flight_date"],
+        "dtime": flight_json["departure"]["scheduled"],
+        "atime": flight_json["arrival"]["scheduled"],
+        "diata": flight_json["departure"]["iata"],
+        "aiata": flight_json["arrival"]["iata"],
+        "airline": flight_json["airline"]["name"],
+        "aircraft": flight_json["aircraft"],
+    }
+    flights_list.append(_dict)
+
+flights_df = pd.DataFrame(flights_list)
+flights_df.to_csv("./data/flights.csv", index=False)
