@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# Ec2 files
+*.pem
+
 # Distribution / packaging
 .Python
 build/
