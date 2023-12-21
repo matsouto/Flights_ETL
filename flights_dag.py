@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from operator import index
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
+from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 
 from FlightRadar24 import FlightRadar24API
 import pandas as pd
@@ -12,9 +12,10 @@ import boto3
 default_args = {
     "owner": "matsouto",
     "depends_on_past": False,
-    "start_date": datetime(2023, 12, 20),
+    "start_date": datetime(2023, 12, 21),
+    "end_date": datetime(2024, 1, 1),
     "email": ["matsouto55@gmail.com"],
-    "email_on_failure": False,
+    "email_on_failure": True,
     "email_on_retry": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=1),
@@ -24,6 +25,7 @@ dag = DAG(
     "flight_dag",
     default_args=default_args,
     description="Flight data ETL for Embraer aircrafts",
+    schedule_interval="*/5 * * * *",  # Run every 10 minutes
 )
 
 
@@ -43,24 +45,33 @@ def extract_flight_data(**kwargs):
         return api.get_flights(aircraft_type=aircraft_type)
 
     embraer_arcrafts = [
-        # "E170",
-        # "E75L",
-        # "E75S",
-        # "E190",
-        # "E290",
+        "E170",
+        "E75L",
+        "E75S",
+        "E190",
+        "E290",
         "E195",
         "E295",
         "E135",
         "E145",
     ]
     # Creating a dictionary for the flights
+    logging.info("Starting extraction")
     flights_dict = {}
     for aircraft_type in embraer_arcrafts:
         flights = get_flights(aircraft_type)
         flights_dict[aircraft_type] = flights
+    logging.info("Completed extraction")
+
+    # Counts the total number of flights for reference
+    total = 0
+    for aircraft_type in embraer_arcrafts:
+        total = total + len(flights_dict[aircraft_type])
 
     # Appends each flight to a list
     all_flights = []
+    i = 0
+    logging.info("Starting adjustments")
     for aircraft_type in embraer_arcrafts:
         for flight in flights_dict[aircraft_type]:
             # Updates some informations from the flight
@@ -88,8 +99,11 @@ def extract_flight_data(**kwargs):
                 "aircraft_type": aircraft_type,
                 "time": flight.time,
             }
-            logging.info(f"Extraction completed for {flight.id}.")
             all_flights.append(_dict)
+            i = i + 1
+            logging.info(f"Finished {i}/{total}")
+
+    logging.info("Completed adjustments")
 
     # Generate the CSV file
     flights_df = pd.DataFrame(all_flights)
@@ -110,11 +124,16 @@ def load_to_s3(**kwargs):
     # Convert to csv file
     csv_data = dataframe.to_csv(index=False)
 
+    # Retrieve AWS credentials from Airflow Connection
+    aws_conn_id = "AWS_CONN"
+    aws_hook = AwsBaseHook(aws_conn_id)
+    credentials = aws_hook.get_credentials()
+
     # Upload the file
     s3 = boto3.client(
         "s3",
-        aws_access_key_id="AKIA3W53N4VZE3FW26FI",
-        aws_secret_access_key="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",
+        aws_access_key_id=credentials.access_key,
+        aws_secret_access_key=credentials.secret_key,
     )
     s3.put_object(
         Body=csv_data,
