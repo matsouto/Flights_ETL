@@ -7,6 +7,8 @@ from FlightRadar24 import FlightRadar24API
 import pandas as pd
 import logging
 import boto3
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 default_args = {
     "owner": "matsouto",
@@ -24,24 +26,55 @@ dag = DAG(
     "flight_dag",
     default_args=default_args,
     description="Flight data ETL for Embraer aircrafts",
-    # schedule_interval="*/30 * * * *",  # Run every 10 minutes
+    # schedule_interval="*/30 * * * *",  # Run every 30 minutes
 )
 
 
 def extract_flight_data(**kwargs):
-    # ------- Flightradar API --------
+    start_time = time.time()
+
     api = FlightRadar24API()
 
-    # Configuring the api
+    # Configuring the API
     flight_tracker = api.get_flight_tracker_config()
     flight_tracker.limit = 1500
     api.set_flight_tracker_config(flight_tracker)
 
-    # ------- Flights --------
+    setup_time = time.time() - start_time
+    logging.info(f"Setup time: {setup_time} seconds")
+
     # Getting all Embraer commercial jets flights
     def get_flights(aircraft_type: str):
         # Gets all the flights for a specific aircraft
-        return api.get_flights(aircraft_type=aircraft_type)
+        return api.get_flights(aircraft_type=aircraft_type, details=False)
+
+    # API call to get more informations about the flights
+    def fetch_flight_details(flight, all_flights: list):
+        try:
+            flight_details = api.get_flight_details(flight)
+            flight.set_flight_details(flight_details)
+        except Exception as e:
+            pass
+
+        # Creating the object of the flight
+        _dict = {
+            "flight_id": flight.id,
+            "heading": flight.heading,
+            "altitude": flight.altitude,
+            "ground_speed": flight.ground_speed,
+            "origin_airport": flight.origin_airport_iata,
+            "destination_airport": flight.destination_airport_iata,
+            "airline_iata": flight.airline_iata,
+            "onground": flight.on_ground,
+            "latitude": flight.latitude,
+            "longitude": flight.longitude,
+            "aircraft_model": getattr(flight, "aircraft_model", "N/A"),
+            "aircraft_code": flight.aircraft_code,
+            "aircraft_country_id": getattr(flight, "aircraft_country_id", "N/A"),
+            "aircraft_type": aircraft_type,
+            "time": flight.time,
+        }
+        all_flights.append(_dict)
 
     embraer_aircrafts = [
         "E170",
@@ -54,62 +87,58 @@ def extract_flight_data(**kwargs):
         "E135",
         "E145",
     ]
-    # Creating a dictionary for the flights
-    logging.info("Starting extraction")
-    flights_dict = {}
-    for aircraft_type in embraer_aircrafts:
-        flights = get_flights(aircraft_type)
-        flights_dict[aircraft_type] = flights
-    logging.info("Completed extraction")
 
+    extraction_start_time = time.time()
+
+    # Creating a dictionary for the flights
+    flights_dict = {}
     # Counts the total number of flights for reference
     total = 0
     for aircraft_type in embraer_aircrafts:
+        flights = get_flights(aircraft_type)
+        flights_dict[aircraft_type] = flights
         total = total + len(flights_dict[aircraft_type])
+
+    extraction_time = time.time() - extraction_start_time
+    logging.info(f"Extraction time: {extraction_time} seconds")
 
     # Appends each flight to a list
     all_flights = []
-    i = 0
-    logging.info("Starting adjustments")
-    for aircraft_type in embraer_aircrafts:
-        for flight in flights_dict[aircraft_type]:
-            # Updates some informations from the flight
-            try:
-                flight_details = api.get_flight_details(flight)
-                flight.set_flight_details(flight_details)
-            except Exception as e:
-                pass
+    logging.info(f"Starting details fetching")
+    details_start_time = time.time()
 
-            # Creating the object of the flight
-            _dict = {
-                "flight_id": flight.id,
-                "heading": flight.heading,
-                "altitude": flight.altitude,
-                "ground_speed": flight.ground_speed,
-                "origin_airport": flight.origin_airport_iata,
-                "destination_airport": flight.destination_airport_iata,
-                "airline_iata": flight.airline_iata,
-                "onground": flight.on_ground,
-                "latitude": flight.latitude,
-                "longitude": flight.longitude,
-                "aircraft_model": getattr(flight, "aircraft_model", "N/A"),
-                "aircraft_code": flight.aircraft_code,
-                "aircraft_country_id": getattr(flight, "aircraft_country_id", "N/A"),
-                "aircraft_type": aircraft_type,
-                "time": flight.time,
-            }
-            all_flights.append(_dict)
-            i = i + 1
-            logging.info(f"Finished {i}/{total}")
+    # Parallel processing for the API fligh_details call
+    # This part was taking too much time to execute before the fix
+    with ThreadPoolExecutor() as executor:
+        futures = []
+        for aircraft_type in embraer_aircrafts:
+            for flight in flights_dict[aircraft_type]:
+                # Submit each task to the ThreadPoolExecutor
+                futures.append(
+                    executor.submit(fetch_flight_details, flight, all_flights)
+                )
 
-    logging.info("Completed adjustments")
+        # Wait for all tasks to complete
+        for future in futures:
+            future.result()
+
+    details_time = time.time() - details_start_time
+    logging.info(f"Details time: {details_time} seconds")
 
     # Generate the CSV file
+    dataframe_start_time = time.time()
     flights_df = pd.DataFrame(all_flights)
+
+    dataframe_time = time.time() - dataframe_start_time
+    logging.info(f"DataFrame creation time: {dataframe_time} seconds")
 
     # Replace 'N/A' with NaN
     # This is important to prevent errors in the serialization of XCOM
     flights_df.replace("N/A", pd.NA, inplace=True)
+
+    total_time = time.time() - start_time
+    logging.info(f"Extraction finished!")
+    logging.info(f"Total execution time: {total_time} seconds")
 
     # Push data to Airflow XCOM
     kwargs["ti"].xcom_push(key="extracted_data", value=flights_df)
