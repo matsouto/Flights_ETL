@@ -144,9 +144,54 @@ def extract_flight_data(**kwargs):
     kwargs["ti"].xcom_push(key="extracted_data", value=flights_df)
 
 
-def load_to_s3(**kwargs):
+def transform_flight_data(**kwargs):
     # Pull data from Airflow XCOM
     data = kwargs["ti"].xcom_pull(key="extracted_data")
+    df = pd.DataFrame.from_dict(data)
+    flights_df = df.copy()
+    flights_df.drop_duplicates(subset=["flight_id"], inplace=True)
+
+    # --------- AIRLINES DIMENSION TABLE ----------
+
+    # Remove null values for airline_iata
+    flights_df_airlines = flights_df.copy()
+    flights_df_airlines.dropna(subset=["airline_iata"], inplace=True)
+    flights_df_airlines.dropna(subset=["airline_iata"], inplace=True)
+
+    airline_data_df = pd.read_csv("./data/iata_airlines.csv", sep=",")
+
+    # Merge the DataFrames based on 'iata_code'
+    _merged_df = pd.merge(
+        flights_df_airlines,
+        airline_data_df,
+        left_on="airline_iata",
+        right_on="iata_code",
+        how="left",
+    )
+
+    # Create airlines_dim DataFrame and keep the index from flights_df
+    airlines_dim = pd.DataFrame()
+    airlines_dim["id"] = _merged_df.index
+    airlines_dim["airline_name"] = _merged_df["name"]
+    airlines_dim["airline_iata"] = _merged_df["airline_iata"]
+
+    # Replace empty strings with pd.NA
+    airlines_dim["airline_name"].replace("", pd.NA, inplace=True)
+
+    # --------- AIRCRAFTS DIMENSION TABLE ----------
+    aircrafs_dim = pd.DataFrame()
+
+    # Push data to Airflow XCOM
+    kwargs["ti"].xcom_push(key="transformed_data", value=flights_df)
+
+
+def load_to_s3(**kwargs):
+    """
+    TODO: Send the flights_df in a "raw-data" folder and the data model
+    as a .json in a "transformed-data" folder
+    """
+    # Pull data from Airflow XCOM
+    data = kwargs["ti"].xcom_pull(key="transformed_data")
     dataframe = pd.DataFrame.from_dict(data)
 
     # Convert to csv file
@@ -177,10 +222,16 @@ extract_task = PythonOperator(
     dag=dag,
 )
 
+transform_task = PythonOperator(
+    task_id="transformation",
+    python_callable=transform_flight_data,
+    dag=dag,
+)
+
 load_task = PythonOperator(
-    task_id="load",
+    task_id="loading",
     python_callable=load_to_s3,
     dag=dag,
 )
 
-extract_task >> load_task
+extract_task >> transform_task >> load_task
