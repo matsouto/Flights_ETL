@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from operator import index
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
@@ -25,7 +24,7 @@ dag = DAG(
     "flight_dag",
     default_args=default_args,
     description="Flight data ETL for Embraer aircrafts",
-    schedule_interval="*/5 * * * *",  # Run every 10 minutes
+    # schedule_interval="*/30 * * * *",  # Run every 10 minutes
 )
 
 
@@ -44,7 +43,7 @@ def extract_flight_data(**kwargs):
         # Gets all the flights for a specific aircraft
         return api.get_flights(aircraft_type=aircraft_type)
 
-    embraer_arcrafts = [
+    embraer_aircrafts = [
         "E170",
         "E75L",
         "E75S",
@@ -58,21 +57,21 @@ def extract_flight_data(**kwargs):
     # Creating a dictionary for the flights
     logging.info("Starting extraction")
     flights_dict = {}
-    for aircraft_type in embraer_arcrafts:
+    for aircraft_type in embraer_aircrafts:
         flights = get_flights(aircraft_type)
         flights_dict[aircraft_type] = flights
     logging.info("Completed extraction")
 
     # Counts the total number of flights for reference
     total = 0
-    for aircraft_type in embraer_arcrafts:
+    for aircraft_type in embraer_aircrafts:
         total = total + len(flights_dict[aircraft_type])
 
     # Appends each flight to a list
     all_flights = []
     i = 0
     logging.info("Starting adjustments")
-    for aircraft_type in embraer_arcrafts:
+    for aircraft_type in embraer_aircrafts:
         for flight in flights_dict[aircraft_type]:
             # Updates some informations from the flight
             try:
