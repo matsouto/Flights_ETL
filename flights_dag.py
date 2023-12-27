@@ -156,7 +156,6 @@ def transform_flight_data(**kwargs):
     # Remove null values for airline_iata
     flights_df_airlines = flights_df.copy()
     flights_df_airlines.dropna(subset=["airline_iata"], inplace=True)
-    flights_df_airlines.dropna(subset=["airline_iata"], inplace=True)
 
     airline_data_df = pd.read_csv("./data/iata_airlines.csv", sep=",")
 
@@ -169,17 +168,85 @@ def transform_flight_data(**kwargs):
         how="left",
     )
 
-    # Create airlines_dim DataFrame and keep the index from flights_df
+    # Create airlines_dim DataFrame
     airlines_dim = pd.DataFrame()
-    airlines_dim["id"] = _merged_df.index
     airlines_dim["airline_name"] = _merged_df["name"]
     airlines_dim["airline_iata"] = _merged_df["airline_iata"]
+    airlines_dim.drop_duplicates(subset="airline_iata", inplace=True)
+    airlines_dim.reset_index(drop=True, inplace=True)
+    airlines_dim["id"] = airlines_dim.index
 
     # Replace empty strings with pd.NA
     airlines_dim["airline_name"].replace("", pd.NA, inplace=True)
 
     # --------- AIRCRAFTS DIMENSION TABLE ----------
-    aircrafs_dim = pd.DataFrame()
+    # Create aircrafts_dim DataFrame
+    aircrafts_dim = pd.DataFrame()
+    aircrafts_dim["id"] = flights_df.index
+    aircrafts_dim["aircraft_model"] = flights_df["aircraft_model"]
+    aircrafts_dim["aircraft_code"] = flights_df["aircraft_code"]
+    _merged_df = flights_df.merge(
+        airlines_dim, left_on="airline_iata", right_on="airline_iata", how="left"
+    )
+    aircrafts_dim["airline_id"] = (
+        _merged_df["id"].fillna(-1).astype(int).replace(-1, pd.NA)
+    )
+
+    # --------- AIRPORTS DIMENSION TABLE ----------
+    # Remove null values for airline_iata
+    flights_df_airports = flights_df.copy()
+    flights_df_airports.dropna(subset=["origin_airport"], inplace=True)
+    flights_df_airports_destination = flights_df.copy()
+    flights_df_airports_destination.dropna(subset=["destination_airport"], inplace=True)
+
+    airports_data_df = pd.read_csv("./data/airports.csv", sep=",")
+    airports_data_df["airport_latitude"] = airports_data_df["latitude"]
+    airports_data_df["airport_longitude"] = airports_data_df["longitude"]
+
+    # Helper function to create the airport DataFrames
+    def create_airports_df(
+        flights_df_airports, airports_data_df, subset: str
+    ) -> pd.DataFrame:
+        # Merge the DataFrames based on 'iata_code'
+        _merged_df = pd.merge(
+            flights_df_airports,
+            airports_data_df,
+            left_on=subset,
+            right_on="iata",
+            how="left",
+        )
+
+        # Create airports DataFrame
+        airports_df = pd.DataFrame()
+        airports_df["airport_name"] = _merged_df["airport"]
+        airports_df["airport_iata"] = _merged_df["iata"]
+        airports_df["airport_icao"] = _merged_df["icao"]
+        airports_df["airport_latitude"] = _merged_df["airport_latitude"]
+        airports_df["airport_longitude"] = _merged_df["airport_longitude"]
+        airports_df["airport_region_name"] = _merged_df["region_name"]
+        airports_df["airport_country_code"] = _merged_df["country_code"]
+        airports_df["id"] = airports_df.index
+
+        airports_df.dropna(inplace=True)
+        airports_df.drop_duplicates(subset="airport_iata", inplace=True)
+
+        return airports_df
+
+    # Create the DataFrame with the origin and destination airports
+    airports_dim_origin = create_airports_df(
+        flights_df_airports, airports_data_df, "origin_airport"
+    )
+    airports_dim_destination = create_airports_df(
+        flights_df_airports, airports_data_df, "destination_airport"
+    )
+
+    # Concatenate both DataFrames and remove duplicates
+    airports_dim = pd.concat([airports_dim_origin, airports_dim_destination], axis=0)
+    airports_dim.drop_duplicates(subset="airport_iata", inplace=True)
+    airports_dim.reset_index(inplace=True, drop=True)
+    airports_dim
+
+    # --------- TIME DIMENSION TABLE ----------
 
     # Push data to Airflow XCOM
     kwargs["ti"].xcom_push(key="transformed_data", value=flights_df)
