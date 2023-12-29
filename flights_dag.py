@@ -10,6 +10,9 @@ import boto3
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+# TODO: Adicionar vertical_speed, callsign, aircraft_age, status_text
+# TODO: Maybe get data from the airport directelly from the API instead of info tables
+
 default_args = {
     "owner": "matsouto",
     "depends_on_past": False,
@@ -68,6 +71,7 @@ def extract_flight_data(**kwargs):
             "onground": flight.on_ground,
             "latitude": flight.latitude,
             "longitude": flight.longitude,
+            "aircraft_registration": flight.registration,
             "aircraft_model": getattr(flight, "aircraft_model", "N/A"),
             "aircraft_code": flight.aircraft_code,
             "aircraft_country_id": getattr(flight, "aircraft_country_id", "N/A"),
@@ -149,7 +153,11 @@ def transform_flight_data(**kwargs):
     data = kwargs["ti"].xcom_pull(key="extracted_data")
     df = pd.DataFrame.from_dict(data)
     flights_df = df.copy()
+    # Prevents in case of duplicated flight records
     flights_df.drop_duplicates(subset=["flight_id"], inplace=True)
+    # Removes the aircrafts without registration
+    flights_df.dropna(subset=["aircraft_registration"], inplace=True)
+    flights_df.reset_index(drop=True, inplace=True)
 
     # --------- AIRLINES DIMENSION TABLE ----------
 
@@ -183,6 +191,7 @@ def transform_flight_data(**kwargs):
     # Create aircrafts_dim DataFrame
     aircrafts_dim = pd.DataFrame()
     aircrafts_dim["id"] = flights_df.index
+    aircrafts_dim["aircraft_registration"] = flights_df["aircraft_registration"]
     aircrafts_dim["aircraft_model"] = flights_df["aircraft_model"]
     aircrafts_dim["aircraft_code"] = flights_df["aircraft_code"]
     _merged_df = flights_df.merge(
@@ -225,7 +234,6 @@ def transform_flight_data(**kwargs):
         airports_df["airport_longitude"] = _merged_df["airport_longitude"]
         airports_df["airport_region_name"] = _merged_df["region_name"]
         airports_df["airport_country_code"] = _merged_df["country_code"]
-        airports_df["id"] = airports_df.index
 
         airports_df.dropna(inplace=True)
         airports_df.drop_duplicates(subset="airport_iata", inplace=True)
@@ -244,9 +252,35 @@ def transform_flight_data(**kwargs):
     airports_dim = pd.concat([airports_dim_origin, airports_dim_destination], axis=0)
     airports_dim.drop_duplicates(subset="airport_iata", inplace=True)
     airports_dim.reset_index(inplace=True, drop=True)
-    airports_dim
+    airports_dim["id"] = airports_dim.index
 
     # --------- TIME DIMENSION TABLE ----------
+
+    # The time comes in the UTC format from the API, thus, it have to be converted
+    _datetime_objects = [
+        datetime.utcfromtimestamp(timestamp) for timestamp in flights_df["time"].values
+    ]
+
+    # Create the time dimension DataFrame
+    time_dim = pd.DataFrame()
+    _years = [dt.year for dt in _datetime_objects]
+    _months = [dt.month for dt in _datetime_objects]
+    _days = [dt.day for dt in _datetime_objects]
+    _hours = [dt.hour for dt in _datetime_objects]
+    _minutes = [dt.minute for dt in _datetime_objects]
+    _seconds = [dt.second for dt in _datetime_objects]
+
+    time_dim["utc"] = flights_df["time"]
+    time_dim["year"] = _years
+    time_dim["month"] = _months
+    time_dim["day"] = _days
+    time_dim["hour"] = _hours
+    time_dim["minute"] = _minutes
+    time_dim["second"] = _seconds
+
+    time_dim.drop_duplicates(subset="utc", inplace=True)
+    time_dim.reset_index(inplace=True, drop=True)
+    time_dim["id"] = time_dim.index
 
     # Push data to Airflow XCOM
     kwargs["ti"].xcom_push(key="transformed_data", value=flights_df)
