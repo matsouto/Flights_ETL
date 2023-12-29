@@ -262,7 +262,7 @@ def transform_flight_data(**kwargs):
     ]
 
     # Create the time dimension DataFrame
-    time_dim = pd.DataFrame()
+    datetimes_dim = pd.DataFrame()
     _years = [dt.year for dt in _datetime_objects]
     _months = [dt.month for dt in _datetime_objects]
     _days = [dt.day for dt in _datetime_objects]
@@ -270,17 +270,60 @@ def transform_flight_data(**kwargs):
     _minutes = [dt.minute for dt in _datetime_objects]
     _seconds = [dt.second for dt in _datetime_objects]
 
-    time_dim["utc"] = flights_df["time"]
-    time_dim["year"] = _years
-    time_dim["month"] = _months
-    time_dim["day"] = _days
-    time_dim["hour"] = _hours
-    time_dim["minute"] = _minutes
-    time_dim["second"] = _seconds
+    datetimes_dim["utc"] = flights_df["time"]
+    datetimes_dim["year"] = _years
+    datetimes_dim["month"] = _months
+    datetimes_dim["day"] = _days
+    datetimes_dim["hour"] = _hours
+    datetimes_dim["minute"] = _minutes
+    datetimes_dim["second"] = _seconds
 
-    time_dim.drop_duplicates(subset="utc", inplace=True)
-    time_dim.reset_index(inplace=True, drop=True)
-    time_dim["id"] = time_dim.index
+    datetimes_dim.drop_duplicates(subset="utc", inplace=True)
+    datetimes_dim.reset_index(inplace=True, drop=True)
+    datetimes_dim["id"] = datetimes_dim.index
+
+    # --------- FLIGHTS FACTS TABLE ----------
+
+    flights_fact = pd.DataFrame()
+    flights_fact["heading"] = flights_df["heading"]
+    flights_fact["altitude"] = flights_df["altitude"]
+    flights_fact["ground_speed"] = flights_df["ground_speed"]
+    flights_fact["onground"] = flights_df["onground"]
+    flights_fact["latitude"] = flights_df["latitude"]
+    flights_fact["longitude"] = flights_df["longitude"]
+    flights_fact["longitude"] = flights_df["longitude"]
+
+    # Creating the foreign keys
+    _merged_df = flights_df.merge(
+        airports_dim, left_on="origin_airport", right_on="airport_iata", how="left"
+    )
+    flights_fact["origin_airport_id"] = (
+        _merged_df["id"].fillna(-1).astype(int).replace(-1, pd.NA)
+    )
+
+    _merged_df = flights_df.merge(
+        airports_dim, left_on="destination_airport", right_on="airport_iata", how="left"
+    )
+    flights_fact["destination_airport_id"] = (
+        _merged_df["id"].fillna(-1).astype(int).replace(-1, pd.NA)
+    )
+
+    _merged_df = flights_df.merge(
+        aircrafts_dim,
+        left_on="aircraft_registration",
+        right_on="aircraft_registration",
+        how="left",
+    )
+    flights_fact["aircraft_id"] = (
+        _merged_df["id"].fillna(-1).astype(int).replace(-1, pd.NA)
+    )
+
+    _merged_df = flights_df.merge(
+        datetimes_dim, left_on="time", right_on="utc", how="left"
+    )
+    flights_fact["datetimes_id"] = (
+        _merged_df["id"].fillna(-1).astype(int).replace(-1, pd.NA)
+    )
 
     # Push data to Airflow XCOM
     kwargs["ti"].xcom_push(key="transformed_data", value=flights_df)
