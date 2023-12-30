@@ -17,7 +17,7 @@ default_args = {
     "owner": "matsouto",
     "depends_on_past": False,
     "start_date": datetime(2023, 12, 21),
-    "end_date": datetime(2024, 1, 1),
+    # "end_date": datetime(2024, 1, 1),
     "email": ["matsouto55@gmail.com"],
     "email_on_failure": True,
     "email_on_retry": False,
@@ -326,7 +326,11 @@ def transform_flight_data(**kwargs):
     )
 
     # Push data to Airflow XCOM
-    kwargs["ti"].xcom_push(key="transformed_data", value=flights_df)
+    kwargs["ti"].xcom_push(key="flights_fact", value=flights_fact)
+    kwargs["ti"].xcom_push(key="airports_dim", value=airports_dim)
+    kwargs["ti"].xcom_push(key="datetimes_dim", value=datetimes_dim)
+    kwargs["ti"].xcom_push(key="airlines_dim", value=airlines_dim)
+    kwargs["ti"].xcom_push(key="aircrafts_dim", value=aircrafts_dim)
 
 
 def load_to_s3(**kwargs):
@@ -334,30 +338,43 @@ def load_to_s3(**kwargs):
     TODO: Send the flights_df in a "raw-data" folder and the data model
     as a .json in a "transformed-data" folder
     """
-    # Pull data from Airflow XCOM
-    data = kwargs["ti"].xcom_pull(key="transformed_data")
-    dataframe = pd.DataFrame.from_dict(data)
-
-    # Convert to csv file
-    csv_data = dataframe.to_csv(index=False)
-
     # Retrieve AWS credentials from Airflow Connection
+    logging.info("Retrieving credentials")
     aws_conn_id = "AWS_CONN"
     aws_hook = AwsBaseHook(aws_conn_id)
     credentials = aws_hook.get_credentials()
 
-    # Upload the file
+    logging.info("Starting connection")
     s3 = boto3.client(
         "s3",
         aws_access_key_id=credentials.access_key,
         aws_secret_access_key=credentials.secret_key,
     )
-    s3.put_object(
-        Body=csv_data,
-        Bucket="matsouto-flights-elt",
-        Key=f"{datetime.now().strftime('%Y-%m-%d %H:%M')}.csv",
-    )
-    logging.info("File uploaded to S3")
+
+    table_list = [
+        "flights_facts",
+        "airports_dim",
+        "datetimes_dim",
+        "airlines_dim",
+        "aircrafts_dim",
+    ]
+    logging.info("Starting data upload")
+    # Upload the files
+    upload_datetime = datetime.now().strftime("%Y-%m-%d %H:%M")
+    for table in table_list:
+        # Pull data from Airflow XCOM
+        data = kwargs["ti"].xcom_pull(key=table)
+        df = pd.DataFrame.from_dict(data)
+        # Convert to csv file
+        csv_data = df.to_csv(index=False)
+
+        # Load data to S3
+        s3.put_object(
+            Body=csv_data,
+            Bucket="matsouto-flights-elt",
+            Key=f"transformed_data/{upload_datetime}/{table}.csv",
+        )
+        logging.info(f"{table} uploaded to S3")
 
 
 extract_task = PythonOperator(

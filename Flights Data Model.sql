@@ -1,8 +1,9 @@
 CREATE TABLE "aircrafts_dim" (
   "id" integer PRIMARY KEY,
-  "model" varchar(128),
+  "aircraft_registration" varchar(128),
+  "aircraft_model" varchar(128),
   "aircraft_code" varchar(6),
-  "country_code" char(2),
+  "aircraft_country_id" char(2),
   "airline_id" integer
 );
 
@@ -17,7 +18,7 @@ CREATE TABLE "flights_facts" (
   "origin_airport_id" integer,
   "destination_airport_id" integer,
   "aircraft_id" integer,
-  "time_id" integer
+  "datetimes_id" integer
 );
 
 CREATE TABLE "airports_dim" (
@@ -27,19 +28,26 @@ CREATE TABLE "airports_dim" (
   "airport_icao" char(4) UNIQUE,
   "airport_latitude" real,
   "airport_longitude" real,
-  "region_name" varchar(128),
-  "country_code" char(2)
+  "airport_region_name" varchar(128),
+  "airport_country_code" char(2)
 );
 
 CREATE TABLE "airlines_dim" (
   "id" integer PRIMARY KEY,
-  "airline_name" varchar(128) UNIQUE,
-  "airline_iata" varchar(2) UNIQUE
+  "airline_iata" varchar(2) UNIQUE NOT NULL,
+  "airline_name" varchar(128),
+  "airline_country" varchar(128)
 );
 
 CREATE TABLE "datetimes_dim" (
   "id" integer PRIMARY KEY,
-  "time" integer UNIQUE
+  "utc" integer UNIQUE,
+  "year" integer,
+  "month" integer,
+  "day" integer,
+  "hour" integer,
+  "minute" integer,
+  "second" integer
 );
 
 COMMENT ON TABLE "datetimes_dim" IS 'To be improved';
@@ -50,6 +58,6 @@ ALTER TABLE "flights_facts" ADD FOREIGN KEY ("destination_airport_id") REFERENCE
 
 ALTER TABLE "aircrafts_dim" ADD FOREIGN KEY ("id") REFERENCES "flights_facts" ("aircraft_id") ON DELETE CASCADE;
 
-ALTER TABLE "flights_facts" ADD FOREIGN KEY ("time_id") REFERENCES "datetimes_dim" ("id");
+ALTER TABLE "flights_facts" ADD FOREIGN KEY ("datetimes_id") REFERENCES "datetimes_dim" ("id");
 
 ALTER TABLE "aircrafts_dim" ADD FOREIGN KEY ("airline_id") REFERENCES "airlines_dim" ("id");
