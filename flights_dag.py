@@ -23,13 +23,14 @@ default_args = {
     "email_on_retry": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=1),
+    "catchup": False,  # Disable backfilling
 }
 
 dag = DAG(
     "flight_dag",
     default_args=default_args,
     description="Flight data ETL for Embraer aircrafts",
-    # schedule_interval="*/30 * * * *",  # Run every 30 minutes
+    schedule_interval="*/30 * * * *",  # Run every 30 minutes
 )
 
 
@@ -352,7 +353,7 @@ def load_to_s3(**kwargs):
     )
 
     table_list = [
-        "flights_facts",
+        "flights_fact",
         "airports_dim",
         "datetimes_dim",
         "airlines_dim",
